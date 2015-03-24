@@ -1,8 +1,6 @@
 package params
 
-import com.typesafe.config.{ConfigObject, ConfigValue, ConfigFactory}
-import scala.collection.JavaConverters._
-import java.util.Map.Entry
+import com.typesafe.config.{ConfigFactory}
 
 /**
  * Created by diego on 11/27/14.

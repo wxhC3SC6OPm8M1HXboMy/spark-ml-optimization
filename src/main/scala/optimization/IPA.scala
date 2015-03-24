@@ -24,15 +24,15 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
 
   /*
    *  Set the step size function
-   *  default: 1 / (1 + regParam * t) if regParam > 0
-   *  if regParam = 0, then 1/t 
+   *  default: 1 / (1 + regParam * sqrt(t)) if regParam > 0
+   *  if regParam = 0, then 1/sqrt(t)
    */
 
   private val stepSizeFunctionWithReg = (iterCount:Int) => {
-    1.0 / (1.0 + this.regParam * iterCount)
+    1.0 / (1.0 + this.regParam * math.sqrt(iterCount))
   }
   private val stepSizeFunctionNoReg = (iterCount:Int) => {
-    1.0 / iterCount
+    1.0 / math.sqrt(iterCount)
   }
 
   def setStepSizeFunction(func: (Int) => Double): this.type = {
