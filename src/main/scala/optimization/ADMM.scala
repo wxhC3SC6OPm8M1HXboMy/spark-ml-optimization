@@ -22,6 +22,7 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
   private var stepSize: Double = 1.0
   private var rho: Double = 0.0001
   private var stepSizeFunction: Option[(Int) => Double] = None
+  private var stoppingEpsilon: Double = 1.0E-6
 
   /*
    *  Set the step size function
@@ -38,6 +39,15 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
 
   def setStepSizeFunction(func: (Int) => Double): this.type = {
     this.stepSizeFunction = Some(func)
+    this
+  }
+
+  /*
+  * Set the stopping criterion: if consecutive two weights do not change in norm by more than this value, then stop
+  */
+
+  def setStoppingEpsilon(value: Double): this.type = {
+    this.stoppingEpsilon = value
     this
   }
 
@@ -108,6 +118,7 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
       gradient,
       updater,
       stepSize,
+      stoppingEpsilon,
       rho,
       stepFunction,
       numIterations,
@@ -124,11 +135,14 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
  */
 
 object ADMM extends Logging {
+  private val MAX_LOSSES_TO_REPORT:Int = 10
+
   def runADMM(
                        data: RDD[(Double, Vector)],
                        gradient: Gradient,
                        updater: DistUpdater,
                        stepSize: Double,
+                       stoppingEpsilon: Double,
                        rho: Double,
                        stepSizeFunction: (Int) => Double,
                        numIterations: Int,
@@ -143,6 +157,8 @@ object ADMM extends Logging {
     val numberOfFeatures = weights.size
     val noPartitions = data.partitions.length
     val zeroVector = Vectors.dense(new Array[Double](numberOfFeatures))
+
+    var actualIterations = 1
 
     /*
      * the first iteration: corresponds to regular single iteration of IPA
@@ -182,12 +198,16 @@ object ADMM extends Logging {
     var regularizationWeights = Vectors.zeros(numberOfFeatures)
 
     // prevIterRdd: for each partition (record in the rdd) it has: solution (partition) weights,loss,partition id
-    def runOneIteration(j:Int,prevIterRdd:RDD[(Vector,Double,Int)]): Unit = {
-      if (j < 0) return
+    def runOneIteration(j:Int,_prevIterRdd:Option[RDD[(Vector,Double,Int)]],stopFlag: Boolean): Unit = {
+      if (j < 0 || stopFlag) return
 
       /*
        * average solution
        */
+
+      val prevIterRdd = _prevIterRdd match {
+        case Some(x) => x
+      }
 
       val (sumWeight,totalLoss) = prevIterRdd.map{ t => (t._1,t._2) }.treeAggregate((Vectors.zeros(numberOfFeatures), 0.0))(
         seqOp = (c, v) => {
@@ -207,12 +227,24 @@ object ADMM extends Logging {
       BLAS.getInstance().daxpy(numberOfFeatures,1.0,regularizationWeights.asInstanceOf[DenseVector].values, 1, sumWeight.asInstanceOf[DenseVector].values,1)
       // divide the sum to get the average
       BLAS.getInstance().dscal(numberOfFeatures,1.0/(noPartitions+1),sumWeight.asInstanceOf[DenseVector].values,1)
+
+      // check if the previous vector weights and the new one sumWeight differ by more then stoppingEspilon
+      val diffArray = new Array[Double](sumWeight.size)
+      BLAS.getInstance().dcopy(sumWeight.size,sumWeight.asInstanceOf[DenseVector].values,1,diffArray,1)
+      BLAS.getInstance().daxpy(sumWeight.size,-1.0,weights.asInstanceOf[DenseVector].values,1,diffArray,1)
+      val normDiff = BLAS.getInstance().dnrm2(sumWeight.size,diffArray,1)
+
       weights = sumWeight
 
       // to compute the regularization value
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
 
       stochasticLossHistory.append(totalLoss+regParam*regVal)
+
+      val stop = if(normDiff < stoppingEpsilon) true else false
+      if(stop) {
+        runOneIteration(j-1,None,stop)
+      }
 
       // broadcast weights; in a single iteration these are the average weights
       val bcWeights = data.context.broadcast(weights)
@@ -295,14 +327,15 @@ object ADMM extends Logging {
       BLAS.getInstance().daxpy(numberOfFeatures,-1.0/(rho+regParam),regularizationPenalties.asInstanceOf[DenseVector].values,1,regularizationWeights.asInstanceOf[DenseVector].values,1)
       BLAS.getInstance().daxpy(numberOfFeatures,rho/(rho+regParam),weights.asInstanceOf[DenseVector].values,1,regularizationWeights.asInstanceOf[DenseVector].values,1)
 
-      runOneIteration(j-1,oneIterRdd)
+      runOneIteration(j-1,Some(oneIterRdd),stop)
     }
 
-    runOneIteration(numIterations-2,oneIterRdd.map{ t => (t._1,t._2,t._4) })
+    runOneIteration(numIterations-2,Some(oneIterRdd.map{ t => (t._1,t._2,t._4) }),stopFlag = false)
 
     bCastNoRecords.destroy()
 
-    logInfo("ADMM finished. Last 10 losses %s".format(stochasticLossHistory.takeRight(10).mkString(", ")))
+    val noLossesToReport = math.min(MAX_LOSSES_TO_REPORT,actualIterations)
+    logInfo("ADMM finished. Last %d losses %s".format(noLossesToReport,stochasticLossHistory.takeRight(noLossesToReport).mkString(", ")))
 
     (weights,stochasticLossHistory.toArray)
   }

@@ -21,6 +21,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
   private var regParam: Double = 1.0
   private var stepSize: Double = 1.0
   private var stepSizeFunction: Option[(Int) => Double] = None
+  private var stoppingEpsilon: Double = 1.0E-6
 
   /*
    *  Set the step size function
@@ -37,6 +38,15 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
 
   def setStepSizeFunction(func: (Int) => Double): this.type = {
     this.stepSizeFunction = Some(func)
+    this
+  }
+
+  /*
+   * Set the stopping criterion: if consecutive two weights do not change in norm by more than this value, then stop
+   */
+
+  def setStoppingEpsilon(value: Double): this.type = {
+    this.stoppingEpsilon = value
     this
   }
 
@@ -98,6 +108,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
       gradient,
       updater,
       stepSize,
+      stoppingEpsilon,
       stepFunction,
       numIterations,
       regParam,
@@ -113,11 +124,14 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
  */
 
 object IPA extends Logging {
+  private val MAX_LOSSES_TO_REPORT:Int = 10
+
   def runIPA(
                        data: RDD[(Double, Vector)],
                        gradient: Gradient,
                        updater: DistUpdater,
                        stepSize: Double,
+                       stoppingEpsilon: Double,
                        stepSizeFunction: (Int) => Double,
                        numIterations: Int,
                        regParam: Double,
@@ -133,8 +147,10 @@ object IPA extends Logging {
     val noRecords = data.count()
     val newRegParam = regParam/noRecords
 
-    def runOneIteration(j:Int): Unit = {
-      if(j < 0) return
+    var actualIterations = 0
+
+    def runOneIteration(j:Int,stopFlag: Boolean): Unit = {
+      if(j < 0 || stopFlag) return
       // broadcast weights
       val bcWeights = data.context.broadcast(weights)
       // for each partition in the rdd
@@ -170,20 +186,31 @@ object IPA extends Logging {
       })
 
       BLAS.getInstance().dscal(numberOfFeatures,1.0/noPartitions,sumWeight.asInstanceOf[DenseVector].values,1)
+
+      // check if the previous vector weights and the new one sumWeight differ by more then stoppingEspilon
+      val diffArray = new Array[Double](sumWeight.size)
+      BLAS.getInstance().dcopy(sumWeight.size,sumWeight.asInstanceOf[DenseVector].values,1,diffArray,1)
+      BLAS.getInstance().daxpy(sumWeight.size,-1.0,weights.asInstanceOf[DenseVector].values,1,diffArray,1)
+      val normDiff = BLAS.getInstance().dnrm2(sumWeight.size,diffArray,1)
+
       weights = sumWeight
 
       // to compute the regularization value
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
 
+      actualIterations += 1
       stochasticLossHistory.append(totalLoss+regParam*regVal)
 
       bcWeights.destroy()
 
-      runOneIteration(j-1)
-    }
-    runOneIteration(numIterations-1)
+      val stop = if(normDiff < stoppingEpsilon) true else false
 
-    logInfo("IPA finished. Last 10 losses %s".format(stochasticLossHistory.takeRight(10).mkString(", ")))
+      runOneIteration(j-1,stop)
+    }
+    runOneIteration(numIterations-1,stopFlag = false)
+
+    val noLossesToReport = math.min(MAX_LOSSES_TO_REPORT,actualIterations)
+    logInfo("IPA finished. Last %d losses %s".format(noLossesToReport,stochasticLossHistory.takeRight(noLossesToReport).mkString(", ")))
 
     (weights,stochasticLossHistory.toArray)
   }
