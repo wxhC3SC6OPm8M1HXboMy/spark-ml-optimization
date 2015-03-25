@@ -8,6 +8,7 @@ import org.apache.spark.mllib.linalg.Vectors
 import org.apache.log4j.Logger
 
 import classification.{LogisticRegressionWithADMM,LogisticRegressionWithIPA}
+import optimization.Distributed
 
 /**
  * Created by diego on 1/31/15.
@@ -46,36 +47,19 @@ object Experiments {
      */
 
     log.info("Solving model")
-    val model = Params.algoType match {
-      case "IPA" => {
-        val algo = new LogisticRegressionWithIPA()
-        algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
-        algo.run(inputData)
-
-      }
-      case "ADMM" => {
-        val algo = new LogisticRegressionWithADMM()
-        algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
-          .setRho(Params.rho)
-        algo.run(inputData)
-      }
-    }
-    log.info("Solved")
-
-/*
-    log.info("Solving model")
     val algo = Params.algoType match {
       case "IPA" =>
         new LogisticRegressionWithIPA()
       case "ADMM" =>
-        new LogisticRegressionWithADMM()
+        val a = new LogisticRegressionWithADMM()
+        a.optimizer.setRho(Params.rho)
+        a
     }
     log.info("Solved")
 
-    algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
-      .setRho(Params.rho)
-    algo.run(inputData)
- */
+    algo.optimizer.asInstanceOf[Distributed].setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
+    val model = algo.run(inputData)
+
     val pw = new PrintWriter(new File("weights.txt"))
     pw.write(model.weights.toArray.mkString(" "))
     pw.close()
