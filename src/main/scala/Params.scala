@@ -1,6 +1,4 @@
-package params
-
-import com.typesafe.config.{ConfigFactory}
+import com.typesafe.config.ConfigFactory
 
 /**
  * Created by diego on 11/27/14.
@@ -22,7 +20,13 @@ object Params {
   // regularization parameter
   val regularizationValue = conf.getDouble("Algo.RegularizationValue")
 
+  // algorithm type
+  val algoType = conf.getString("Algo.Type")
+
+  // rho for admm
+  val rho = conf.getDouble("AlgoADMM.Rho")
+
   override def toString:String = {
-    "inputFile " + inputFile + " NumberOfIterations " + numberOfIterations + " StepSize " + stepSize + " RegularizationValue " + regularizationValue
+    "inputFile " + inputFile + " NumberOfIterations " + numberOfIterations + " StepSize " + stepSize + " RegularizationValue " + regularizationValue + " Type " + algoType + " Rho " + rho
   }
 }

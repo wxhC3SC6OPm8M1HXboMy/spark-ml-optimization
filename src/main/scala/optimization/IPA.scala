@@ -91,9 +91,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
   def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
     val stepFunction = this.stepSizeFunction match {
       case Some(func) => func
-      case None => {
-        if(regParam > 0) stepSizeFunctionWithReg else stepSizeFunctionNoReg
-      }
+      case None => if(regParam > 0) stepSizeFunctionWithReg else stepSizeFunctionNoReg
     }
     val (weights, _) = IPA.runIPA(
       data,
@@ -129,8 +127,11 @@ object IPA extends Logging {
     var weights = Vectors.dense(initialWeights.toArray)
 
     val numberOfFeatures = weights.size
-    val noPartitions = data.partitions.size
+    val noPartitions = data.partitions.length
     val zeroVector = Vectors.dense(new Array[Double](numberOfFeatures))
+
+    val noRecords = data.count()
+    val newRegParam = regParam/noRecords
 
     def runOneIteration(j:Int): Unit = {
       if(j < 0) return
@@ -146,7 +147,7 @@ object IPA extends Logging {
           // gradient
           val (newGradient,newLoss) = gradient.compute(features, label, w)
           // update current point
-          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
+          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, newRegParam)
           loss += newLoss
           w = w1
           iterCount += 1
@@ -169,15 +170,18 @@ object IPA extends Logging {
       })
 
       BLAS.getInstance().dscal(numberOfFeatures,1.0/noPartitions,sumWeight.asInstanceOf[DenseVector].values,1)
-      weights = sumWeight.asInstanceOf[Vector]
+      weights = sumWeight
 
       // to compute the regularization value
-      var regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
+      val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
 
       stochasticLossHistory.append(totalLoss+regParam*regVal)
+
+      bcWeights.destroy()
+
       runOneIteration(j-1)
     }
-    runOneIteration(numIterations)
+    runOneIteration(numIterations-1)
 
     logInfo("IPA finished. Last 10 losses %s".format(stochasticLossHistory.takeRight(10).mkString(", ")))
 

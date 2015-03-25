@@ -7,7 +7,6 @@ import org.apache.spark.mllib.linalg.Vectors
 
 import org.apache.log4j.Logger
 
-import params.Params
 import classification.LogisticRegressionWithIPA
 
 /**
@@ -37,8 +36,8 @@ object Experiments {
       val features = Vectors.dense(v)
       if(v(0) == -1.0) v(0) = 0.0
       LabeledPoint(v(0),features)
-    }.persist
-    log.info("Data read. Number of partitions " + inputData.partitions.size)
+    }.persist()
+    log.info("Data read. Number of partitions " + inputData.partitions.length)
 
     /*
      * classification model calibration
@@ -51,8 +50,8 @@ object Experiments {
     log.info("Solved")
 
     val pw = new PrintWriter(new File("weights.txt"))
-    pw.write(weights.toArray.mkString(" "))
-    pw.close
+    pw.write(model.weights.toArray.mkString(" "))
+    pw.close()
 
     inputData.unpersist()
   }
