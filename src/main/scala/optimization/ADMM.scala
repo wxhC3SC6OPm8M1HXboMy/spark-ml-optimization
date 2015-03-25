@@ -45,7 +45,7 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
    * set rho in ADMM; default = 0.0001
    */
 
-  def setRho(value: Int): this.type = {
+  def setRho(value: Double): this.type = {
     this.rho = value
     this
   }

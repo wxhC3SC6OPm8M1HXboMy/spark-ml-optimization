@@ -7,7 +7,7 @@ import org.apache.spark.mllib.linalg.Vectors
 
 import org.apache.log4j.Logger
 
-import classification.LogisticRegressionWithIPA
+import classification.{LogisticRegressionWithADMM,LogisticRegressionWithIPA}
 
 /**
  * Created by diego on 1/31/15.
@@ -44,9 +44,20 @@ object Experiments {
      */
 
     log.info("Solving model")
-    val algo = new LogisticRegressionWithIPA()
-    algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize)
-    var model = algo.run(inputData)
+    val model = Params.algoType match {
+      case "IPA" => {
+        val algo = new LogisticRegressionWithIPA()
+        algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize)
+        algo.run(inputData)
+
+      }
+      case "ADMM" => {
+        val algo = new LogisticRegressionWithADMM()
+        algo.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize)
+          .setRho(Params.rho)
+        algo.run(inputData)
+      }
+    }
     log.info("Solved")
 
     val pw = new PrintWriter(new File("weights.txt"))

@@ -7,6 +7,7 @@ import org.apache.spark.mllib.util.DataValidators
 import org.apache.spark.mllib.linalg.Vector
 
 import optimization.IPA
+import optimization.ADMM
 import optimization.SquaredL2Updater
 
 /**
@@ -22,4 +23,19 @@ class LogisticRegressionWithIPA extends GeneralizedLinearAlgorithm[LogisticRegre
     override protected def createModel(weights: Vector, intercept: Double) = {
       new LogisticRegressionModel(weights, intercept)
     }
+}
+
+/**
+ * Created by diego on 1/31/15.
+ * Logistic regression with ADMM for optimization
+ */
+
+class LogisticRegressionWithADMM extends GeneralizedLinearAlgorithm[LogisticRegressionModel] with Serializable {
+  override val optimizer = new ADMM(new LogisticGradient, new SquaredL2Updater)
+
+  override protected val validators = List(DataValidators.binaryLabelValidator)
+
+  override protected def createModel(weights: Vector, intercept: Double) = {
+    new LogisticRegressionModel(weights, intercept)
+  }
 }
