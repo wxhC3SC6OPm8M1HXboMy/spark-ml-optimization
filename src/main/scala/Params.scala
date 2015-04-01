@@ -27,7 +27,7 @@ object Params {
   val rho = conf.getDouble("AlgoADMM.Rho")
 
   // stopping epsilon
-  var stoppingEpsilon = conf.getDouble("Algo.StoppingEspilon")
+  var stoppingEpsilon = conf.getDouble("Algo.StoppingEpsilon")
 
   override def toString:String = {
     "inputFile " + inputFile + " NumberOfIterations " + numberOfIterations + " StepSize " + stepSize + " RegularizationValue " + regularizationValue + " Type " + algoType + " Rho " + rho

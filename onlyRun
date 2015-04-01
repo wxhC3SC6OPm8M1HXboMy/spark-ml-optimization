@@ -1,1 +1,1 @@
-/opt/cloudera/parcels/spark-1.2.0-bin-cdh4/bin/spark-submit --class "Experiments" --properties-file ml.conf target/scala-2.10/mlalgorithms_2.10-1.2.jar "/home/diego/sparkMlAlgorithms/src/main/resources/reference.conf"
+/opt/cloudera/parcels/spark-1.2.0-bin-cdh4/bin/spark-submit --class "Experiments" --properties-file ml.conf target/scala-2.10/mlalgorithms_2.10-1.2.jar --conf "/home/diego/sparkMlAlgorithms/src/main/resources/reference.conf"

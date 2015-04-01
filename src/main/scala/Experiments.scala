@@ -16,14 +16,39 @@ import optimization.Distributed
 
 object Experiments {
 
+  val usage = """
+                Usage: Experiments --master opt1 (optional) --conf filename (required)
+              """
+
   def main(args: Array[String]): Unit = {
 
-    if(args.length > 0) System.setProperty("config.file", args(0))
+    if(args.length == 0) {
+      println(usage)
+      sys.exit(0)
+    }
+
+    val arglist = args.toList
+    type OptionMap = Map[Symbol, Any]
+    def nextOption(map : OptionMap, list: List[String]) : OptionMap = {
+      list match {
+        case Nil => map
+        case "--conf" :: value :: tail =>
+          nextOption(map ++ Map('conf -> value.toString), tail)
+        case "--master" :: value :: tail =>
+          nextOption(map ++ Map('master -> value.toString), tail)
+        case option :: tail => println("Unknown option " + option)
+          sys.exit(0)
+      }
+    }
+    val options = nextOption(Map(),arglist)
+
+    if(options.contains('conf)) System.setProperty("config.file", options('conf).toString) else sys.exit(0)
 
     val log = Logger.getLogger("mlAlgorithms")
     log.info(Params.toString)
 
     val conf = new SparkConf().setAppName("mlOptimization")
+    if(options.contains('master)) conf.setMaster(options('master).toString)
     conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
     val sc = new SparkContext(conf)
 
@@ -55,10 +80,11 @@ object Experiments {
         a.optimizer.setRho(Params.rho)
         a
     }
-    log.info("Solved")
 
     algo.optimizer.asInstanceOf[Distributed].setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
     val model = algo.run(inputData)
+
+    log.info("Solved")
 
     val pw = new PrintWriter(new File("weights.txt"))
     pw.write(model.weights.toArray.mkString(" "))

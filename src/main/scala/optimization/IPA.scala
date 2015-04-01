@@ -44,7 +44,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
  */
 
 object IPA extends Logging {
-  private val MAX_LOSSES_TO_REPORT:Int = 10
+  private val MAX_LOSSES_TO_REPORT:Int = 20
 
   def runIPA(
                        data: RDD[(Double, Vector)],
@@ -62,7 +62,7 @@ object IPA extends Logging {
 
     val numberOfFeatures = weights.size
     val noPartitions = data.partitions.length
-    val zeroVector = Vectors.dense(new Array[Double](numberOfFeatures))
+    val zeroVector = Vectors.zeros(numberOfFeatures)
 
     val noRecords = data.count()
     val newRegParam = regParam/noRecords
@@ -75,13 +75,15 @@ object IPA extends Logging {
       val bcWeights = data.context.broadcast(weights)
       // for each partition in the rdd
       val oneIterRdd = data.mapPartitions{ case iter =>
-        var w = bcWeights.value
+        var w = bcWeights.value.copy
+        val originalWeight = bcWeights.value
         var iterCount = 1
         var loss = 0.0
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
-          val (newGradient,newLoss) = gradient.compute(features, label, w)
+          val (newGradient,_) = gradient.compute(features, label, w)
+          val (_,newLoss) = gradient.compute(features,label,originalWeight)
           // update current point
           val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, newRegParam)
           loss += newLoss
@@ -119,7 +121,7 @@ object IPA extends Logging {
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
 
       actualIterations += 1
-      stochasticLossHistory.append(totalLoss+regParam*regVal)
+      stochasticLossHistory.append(totalLoss+regVal)
 
       bcWeights.destroy()
 

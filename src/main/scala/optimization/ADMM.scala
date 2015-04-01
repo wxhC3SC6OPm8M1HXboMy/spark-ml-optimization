@@ -55,7 +55,7 @@ class ADMM(private var gradient: Gradient, private var updater: DistUpdater) ext
  */
 
 object ADMM extends Logging {
-  private val MAX_LOSSES_TO_REPORT:Int = 10
+  private val MAX_LOSSES_TO_REPORT:Int = 20
 
   def runADMM(
                        data: RDD[(Double, Vector)],
@@ -76,7 +76,7 @@ object ADMM extends Logging {
 
     val numberOfFeatures = weights.size
     val noPartitions = data.partitions.length
-    val zeroVector = Vectors.dense(new Array[Double](numberOfFeatures))
+    val zeroVector = Vectors.zeros(numberOfFeatures)
 
     var actualIterations = 1
 
@@ -84,15 +84,19 @@ object ADMM extends Logging {
      * the first iteration: corresponds to regular single iteration of IPA
      */
 
+    val bcInitialWeights = data.context.broadcast(weights)
+
     // for each partition in the rdd
     val oneIterRdd = data.mapPartitionsWithIndex{ case (idx,iter) =>
-      var w = Vectors.dense(new Array[Double](numberOfFeatures))
+      var w = bcInitialWeights.value.copy
+      val originalWeight = bcInitialWeights.value
       var iterCount = 1
       var loss = 0.0
       while(iter.hasNext) {
         val (label,features) = iter.next()
         // gradient
-        val (newGradient,newLoss) = gradient.compute(features, label, w)
+        val (newGradient,_) = gradient.compute(features, label, w)
+        val (_,newLoss) = gradient.compute(features,label,originalWeight)
         // update current point
         val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
         loss += newLoss
@@ -159,7 +163,7 @@ object ADMM extends Logging {
       // to compute the regularization value
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
 
-      stochasticLossHistory.append(totalLoss+regParam*regVal)
+      stochasticLossHistory.append(totalLoss+regVal)
 
       val stop = if(normDiff < stoppingEpsilon) true else false
       if(stop) {
@@ -177,8 +181,7 @@ object ADMM extends Logging {
       // update penalties on each record in the rdd
       val pen = prevIterRdd.map{ case(partitionWeight,_,idx) =>
         val w = bcWeights.value
-        val p = bcPenalties.value
-        val penalties = Vectors.dense(numberOfFeatures)
+        val p = bcPenalties.value.copy
         // penalty = penalty + rho(partitionWeight - w)
         BLAS.getInstance().daxpy(w.size, rho, partitionWeight.asInstanceOf[DenseVector].values, 0, 1, p.asInstanceOf[DenseVector].values, numberOfFeatures*idx, 1)
         BLAS.getInstance().daxpy(w.size, -rho, w.asInstanceOf[DenseVector].values, 0, 1, p.asInstanceOf[DenseVector].values, numberOfFeatures*idx, 1)
@@ -213,7 +216,7 @@ object ADMM extends Logging {
       val bcNewPenalties = data.context.broadcast(penalties)
 
       val oneIterRdd = data.mapPartitionsWithIndex{ case (idx,iter) =>
-        var w = bcWeights.value
+        var w = bcWeights.value.copy
         val averageWeight = bcWeights.value
         val noRecords = bCastNoRecords.value(idx)
         val factor = rho/noRecords
@@ -224,7 +227,8 @@ object ADMM extends Logging {
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
-          val (newGradient,newLoss) = gradient.compute(features, label, w)
+          val (newGradient,_) = gradient.compute(features, label, w)
+          val (_,newLoss) = gradient.compute(features,label,averageWeight)
           // adjust with penalties
           BLAS.getInstance().daxpy(numberOfFeatures,1.0/noRecords,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
           // adjust for the averaging factor
@@ -239,8 +243,7 @@ object ADMM extends Logging {
         List((w,loss,idx)).iterator
       }
 
-      bcWeights.destroy()
-      bcNewPenalties.destroy()
+      actualIterations += 1
 
       // compute regularization solution; explicit formula = (rho * average - regularization penalty)/(rho + regParam)
       regularizationWeights = Vectors.zeros(numberOfFeatures)
@@ -251,8 +254,6 @@ object ADMM extends Logging {
     }
 
     runOneIteration(numIterations-2,Some(oneIterRdd.map{ t => (t._1,t._2,t._4) }),stopFlag = false)
-
-    bCastNoRecords.destroy()
 
     val noLossesToReport = math.min(MAX_LOSSES_TO_REPORT,actualIterations)
     logInfo("ADMM finished. Last %d losses %s".format(noLossesToReport,stochasticLossHistory.takeRight(noLossesToReport).mkString(", ")))
