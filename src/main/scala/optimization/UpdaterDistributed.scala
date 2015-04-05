@@ -4,7 +4,7 @@ import scala.math._
 
 import breeze.linalg.{norm => brzNorm, axpy => brzAxpy, Vector => BV, DenseVector => BDV, SparseVector => BSV}
 
-import org.apache.spark.mllib.linalg.{Vectors, Vector, DenseVector, SparseVector}
+import org.apache.spark.mllib.linalg.{Vector, DenseVector, SparseVector}
 
 /**
  *  same as the regular spark updaters except that the step size formula is more generic, pluggable
@@ -152,7 +152,7 @@ class L1Updater extends Updater {
 /**
   *  :: DeveloperApi ::
   *  Updater for L2 regularized problems.
-  *           R(w) = 1/2 ||w||^2
+  *           R(w) = 1/2 pow(||w||,2)
   *  Uses a step-size decreasing with the square root of the number of iterations.
   */
 

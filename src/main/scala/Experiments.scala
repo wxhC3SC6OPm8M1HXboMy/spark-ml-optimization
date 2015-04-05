@@ -7,7 +7,7 @@ import org.apache.spark.mllib.linalg.Vectors
 
 import org.apache.log4j.Logger
 
-import classification.{LogisticRegressionWithADMM,LogisticRegressionWithIPA}
+import classification._
 import optimization.Distributed
 
 /**
@@ -72,11 +72,33 @@ object Experiments {
      */
 
     log.info("Solving model")
-    val algo = Params.algoType match {
-      case "IPA" =>
+    val algo = (Params.algoType,Params.modelType) match {
+      case ("IPA","LogisticRegression") =>
         new LogisticRegressionWithIPA()
-      case "ADMM" =>
+      case ("ADMM","LogisticRegression") =>
         val a = new LogisticRegressionWithADMM()
+        a.optimizer.setRho(Params.rho)
+        a
+      case ("PH","LogisticRegression") =>
+        val a = new LogisticRegressionWithPH()
+        a.optimizer.setRho(Params.rho)
+        a
+      case ("PHDistributeRegularizationTerm","LogisticRegression") =>
+        val a = new LogisticRegressionWithPHDistributeRegularizationTerm()
+        a.optimizer.setRho(Params.rho)
+        a
+      case ("IPA","SVM") =>
+        new SVMWithIPA()
+      case ("ADMM","SVM") =>
+        val a = new SVMWithADMM()
+        a.optimizer.setRho(Params.rho)
+        a
+      case ("PH","SVM") =>
+        val a = new SVMWithPH()
+        a.optimizer.setRho(Params.rho)
+        a
+      case ("PHDistributeRegularizationTerm","SVM") =>
+        val a = new SVMWithPHDistributeRegularizationTerm()
         a.optimizer.setRho(Params.rho)
         a
     }

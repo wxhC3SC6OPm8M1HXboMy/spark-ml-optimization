@@ -25,7 +25,7 @@ abstract class Distributed(private var gradient: Gradient, private var updater: 
    */
 
   protected val stepSizeFunctionWithReg = (iterCount:Int) => {
-    1.0 / (1.0 + this.regParam * math.sqrt(iterCount))
+    1.0 / (1.0 + math.sqrt(iterCount))
   }
   protected val stepSizeFunctionNoReg = (iterCount:Int) => {
     1.0 / math.sqrt(iterCount)

@@ -23,7 +23,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
       case Some(func) => func
       case None => if(regParam > 0) stepSizeFunctionWithReg else stepSizeFunctionNoReg
     }
-    val (weights, _) = IPA.runIPA(
+    val (weights, _) = IPA.run(
       data,
       gradient,
       updater,
@@ -40,13 +40,12 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
 /*
  * run distributed ipa
  * return: weights, loss in each iteration
- * loss = sum of losses for each record based on current weight at that local iteration + regularization value of the weight for the next iteration
  */
 
 object IPA extends Logging {
   private val MAX_LOSSES_TO_REPORT:Int = 20
 
-  def runIPA(
+  def run(
                        data: RDD[(Double, Vector)],
                        gradient: Gradient,
                        updater: DistUpdater,
@@ -64,8 +63,12 @@ object IPA extends Logging {
     val noPartitions = data.partitions.length
     val zeroVector = Vectors.zeros(numberOfFeatures)
 
-    val noRecords = data.count()
-    val newRegParam = regParam/noRecords
+    // number of records per partition
+    val noRecordsPerPartition = Array.fill[Int](noPartitions)(0)
+    data.mapPartitionsWithIndex{ case(idx,iter) =>
+      List((idx,iter.length)).iterator
+    }.map{ t => (t._1,t._2) }.collect().foreach{ case(idx,value) => noRecordsPerPartition(idx) = value }
+    val bCastNoRecords = data.context.broadcast(noRecordsPerPartition)
 
     var actualIterations = 0
 
@@ -74,11 +77,12 @@ object IPA extends Logging {
       // broadcast weights
       val bcWeights = data.context.broadcast(weights)
       // for each partition in the rdd
-      val oneIterRdd = data.mapPartitions{ case iter =>
+      val oneIterRdd = data.mapPartitionsWithIndex{ case (idx,iter) =>
         var w = bcWeights.value.copy
         val originalWeight = bcWeights.value
         var iterCount = 1
         var loss = 0.0
+        val newRegParam = regParam/(noPartitions*bCastNoRecords.value(idx))
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient

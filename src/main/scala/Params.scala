@@ -11,6 +11,9 @@ object Params {
   // input file name
   val inputFile = conf.getString("General.InputFile")
 
+  // input file name
+  val modelType = conf.getString("General.Model")
+
   // number of iterations
   val numberOfIterations = conf.getInt("Algo.NumberOfIterations")
 
@@ -24,12 +27,13 @@ object Params {
   val algoType = conf.getString("Algo.Type")
 
   // rho for admm
-  val rho = conf.getDouble("AlgoADMM.Rho")
+  val rho = conf.getDouble("AlgoADMMType.Rho")
 
   // stopping epsilon
   var stoppingEpsilon = conf.getDouble("Algo.StoppingEpsilon")
 
   override def toString:String = {
-    "inputFile " + inputFile + " NumberOfIterations " + numberOfIterations + " StepSize " + stepSize + " RegularizationValue " + regularizationValue + " Type " + algoType + " Rho " + rho
+    "Input File " + inputFile + " Model Type " + modelType + "  Number Of Iterations " + numberOfIterations + " Step Size " + stepSize + " Regularization Value " + regularizationValue +
+      " Algorithm Type " + algoType + " Rho " + rho
   }
 }
