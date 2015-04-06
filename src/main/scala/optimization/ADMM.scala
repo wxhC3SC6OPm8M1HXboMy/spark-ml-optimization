@@ -5,7 +5,7 @@ import com.github.fommil.netlib.BLAS
 import org.apache.spark.mllib.optimization.Gradient
 import org.apache.spark.Logging
 import org.apache.spark.rdd.RDD
-import org.apache.spark.mllib.linalg.{Vector,Vectors,DenseVector}
+import org.apache.spark.mllib.linalg.{Vector,Vectors,DenseVector,SparseVector}
 import org.apache.spark.mllib.rdd.RDDFunctions._
 
 import scala.collection.mutable.ArrayBuffer
@@ -126,7 +126,11 @@ object ADMM extends Logging {
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
-          val (newGradient,_) = gradient.compute(features, label, w)
+          val (ng,_) = gradient.compute(features, label, w)
+          val newGradient = ng match {
+            case g: DenseVector => g
+            case g: SparseVector => Vectors.dense(g.toArray)
+          }
           val (_,newLoss) = gradient.compute(features,label,averageWeight)
           // adjust with penalties
           BLAS.getInstance().daxpy(numberOfFeatures,factor,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
