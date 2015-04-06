@@ -215,6 +215,8 @@ object ADMM extends Logging {
 
       stochasticLossHistory.append(totalLoss+regVal)
 
+      actualIterations += 1
+
       val stop = if(normDiff < stoppingEpsilon) true else false
       if(!stop) runOneIteration(j-1)
     }

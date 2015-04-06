@@ -24,7 +24,7 @@ abstract class RegularizationOptimizationDistributed extends Serializable {
       penalties: Vector,
       aveWeights: Vector,
       rho: Double,
-      regParam: Double): (Vector, Double)
+      regParam: Double): Vector
 }
 
 /**
