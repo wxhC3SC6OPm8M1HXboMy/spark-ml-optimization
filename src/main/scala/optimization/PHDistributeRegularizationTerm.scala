@@ -162,10 +162,10 @@ object PHDistributeRegularizationTerm extends Logging {
       BLAS.getInstance().daxpy(sumWeight.size,-1.0,weights.asInstanceOf[DenseVector].values,1,diffArray,1)
       val normDiff = BLAS.getInstance().dnrm2(sumWeight.size,diffArray,1)
 
-      weights = sumWeight
-
       // to compute the regularization value
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
+      
+      weights = sumWeight
 
       stochasticLossHistory.append(totalLoss+regVal)
 
