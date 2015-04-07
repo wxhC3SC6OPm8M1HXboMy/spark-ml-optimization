@@ -164,7 +164,7 @@ object PHDistributeRegularizationTerm extends Logging {
 
       // to compute the regularization value
       val regVal = updater.compute(weights, zeroVector, 0, x => x, 1, regParam)._2
-      
+
       weights = sumWeight
 
       stochasticLossHistory.append(totalLoss+regVal)
