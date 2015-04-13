@@ -4,11 +4,15 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.linalg.Vectors
+import org.apache.spark.mllib.optimization.Optimizer
 
 import org.apache.log4j.Logger
 
 import classification._
 import optimization.Distributed
+
+import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS,LogisticRegressionWithSGD,SVMWithSGD}
+
 
 /**
  * Created by diego on 1/31/15.
@@ -87,6 +91,14 @@ object Experiments {
         val a = new LogisticRegressionWithPHDistributeRegularizationTerm()
         a.optimizer.setRho(Params.rho)
         a
+      case ("SGD","LogisticRegression") =>
+        val a = new LogisticRegressionWithSGD()
+        a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
+        a
+      case ("BFGS","LogisticRegression") =>
+        val a = new LogisticRegressionWithLBFGS()
+        a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
+        a
       case ("IPA","SVM") =>
         new SVMWithIPA()
       case ("ADMM","SVM") =>
@@ -101,9 +113,18 @@ object Experiments {
         val a = new SVMWithPHDistributeRegularizationTerm()
         a.optimizer.setRho(Params.rho)
         a
+      case ("SGD","SVM") =>
+        val a = new SVMWithSGD()
+        a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
+        a
+      case ("BFGS","SVM") =>
+        val a = new SVMWithBFGS()
+        a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
+        a
     }
 
-    algo.optimizer.asInstanceOf[Distributed].setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
+    if(Params.algoType != "SGD" && Params.algoType != "BFGS")
+      algo.optimizer.asInstanceOf[Distributed].setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue).setStepSize(Params.stepSize).setStoppingEpsilon(Params.stoppingEpsilon)
     val model = algo.run(inputData)
 
     log.info("Solved")
