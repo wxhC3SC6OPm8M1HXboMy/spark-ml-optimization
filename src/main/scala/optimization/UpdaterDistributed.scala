@@ -2,45 +2,12 @@ package optimization
 
 import scala.math._
 
-import breeze.linalg.{norm => brzNorm, axpy => brzAxpy, Vector => BV, DenseVector => BDV, SparseVector => BSV}
-
-import org.apache.spark.mllib.linalg.{Vector, DenseVector, SparseVector}
+import breeze.linalg.{norm => brzNorm, axpy => brzAxpy, Vector => BV}
+import org.apache.spark.mllib.linalg.{Vector}
 
 /**
  *  same as the regular spark updaters except that the step size formula is more generic, pluggable
  */
-
-/*
- * needed because to/from Breeze are private in Vector
- */
-
-object UpdaterHelper {
-  def toBreeze(v:Vector):BV[Double] = {
-    v match {
-      case value:DenseVector => new BDV[Double](value.values)
-      case value:SparseVector => new BSV[Double](value.indices, value.values, value.size)
-    }
-  }
-
-  def fromBreeze(breezeVector: BV[Double]): Vector = {
-    breezeVector match {
-      case v: BDV[Double] =>
-        if (v.offset == 0 && v.stride == 1 && v.length == v.data.length) {
-          new DenseVector(v.data)
-        } else {
-          new DenseVector(v.toArray)  
-        }
-      case v: BSV[Double] =>
-        if (v.index.length == v.used) {
-          new SparseVector(v.length, v.index, v.data)
-        } else {
-          new SparseVector(v.length, v.index.slice(0, v.used), v.data.slice(0, v.used))
-        }
-      case v: BV[_] =>
-        sys.error("Unsupported Breeze vector type: " + v.getClass.getName)
-    }
-  }
-}
 
 /**
   *  Class used to perform steps (weight update) using Gradient Descent methods.
@@ -94,12 +61,12 @@ class SimpleUpdater extends Updater {
       iter: Int,
       regParam: Double): (Vector, Double) = {
     val thisIterStepSize = stepSize * stepSizeFunction(iter)
-    val brzWeights: BV[Double] = UpdaterHelper.toBreeze(weightsOld).toDenseVector
+    val brzWeights: BV[Double] = BreezeHelper.toBreeze(weightsOld).toDenseVector
     // val brzWeights: BV[Double] = weightsOld.toBreeze.toDenseVector
     // brzAxpy(-thisIterStepSize, gradient.toBreeze, brzWeights)
-    brzAxpy(-thisIterStepSize, UpdaterHelper.toBreeze(gradient), brzWeights)
+    brzAxpy(-thisIterStepSize, BreezeHelper.toBreeze(gradient), brzWeights)
 
-    (UpdaterHelper.fromBreeze(brzWeights), 0)
+    (BreezeHelper.fromBreeze(brzWeights), 0)
   }
 }
 
@@ -134,8 +101,8 @@ class L1Updater extends Updater {
     // Take gradient step
     //val brzWeights: BV[Double] = weightsOld.toBreeze.toDenseVector
     //brzAxpy(-thisIterStepSize, gradient.toBreeze, brzWeights)
-    val brzWeights: BV[Double] = UpdaterHelper.toBreeze(weightsOld).toDenseVector
-    brzAxpy(-thisIterStepSize, UpdaterHelper.toBreeze(gradient), brzWeights)
+    val brzWeights: BV[Double] = BreezeHelper.toBreeze(weightsOld).toDenseVector
+    brzAxpy(-thisIterStepSize, BreezeHelper.toBreeze(gradient), brzWeights)
     // Apply proximal operator (soft thresholding)
     val shrinkageVal = regParam * thisIterStepSize
     var i = 0
@@ -145,7 +112,7 @@ class L1Updater extends Updater {
       i += 1
     }
 
-    (UpdaterHelper.fromBreeze(brzWeights), brzNorm(brzWeights, 1.0) * regParam)
+    (BreezeHelper.fromBreeze(brzWeights), brzNorm(brzWeights, 1.0) * regParam)
   }
 }
 
@@ -170,12 +137,12 @@ class SquaredL2Updater extends Updater {
     // w' = (1 - thisIterStepSize * regParam) * w - thisIterStepSize * gradient
     val thisIterStepSize = stepSize * stepSizeFunction(iter)
     // val brzWeights: BV[Double] = weightsOld.toBreeze.toDenseVector
-    val brzWeights: BV[Double] = UpdaterHelper.toBreeze(weightsOld).toDenseVector
+    val brzWeights: BV[Double] = BreezeHelper.toBreeze(weightsOld).toDenseVector
     brzWeights :*= (1.0 - thisIterStepSize * regParam)
     //brzAxpy(-thisIterStepSize, gradient.toBreeze, brzWeights)
-    brzAxpy(-thisIterStepSize, UpdaterHelper.toBreeze(gradient), brzWeights)
+    brzAxpy(-thisIterStepSize, BreezeHelper.toBreeze(gradient), brzWeights)
     val norm = brzNorm(brzWeights, 2.0)
 
-    (UpdaterHelper.fromBreeze(brzWeights), 0.5 * regParam * norm * norm)
+    (BreezeHelper.fromBreeze(brzWeights), 0.5 * regParam * norm * norm)
   }
 }

@@ -4,7 +4,6 @@ import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.linalg.Vectors
-import org.apache.spark.mllib.optimization.Optimizer
 
 import org.apache.log4j.Logger
 
@@ -12,7 +11,6 @@ import classification._
 import optimization.Distributed
 
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS,LogisticRegressionWithSGD,SVMWithSGD}
-
 
 /**
  * Created by diego on 1/31/15.
@@ -93,6 +91,8 @@ object Experiments {
         a
       case ("SGD","LogisticRegression") =>
         val a = new LogisticRegressionWithSGD()
+        val updater = new MySquaredL2Updater()
+        a.optimizer.setUpdater(updater)
         a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
         a
       case ("BFGS","LogisticRegression") =>
@@ -115,6 +115,8 @@ object Experiments {
         a
       case ("SGD","SVM") =>
         val a = new SVMWithSGD()
+        val updater = new MySquaredL2Updater()
+        a.optimizer.setUpdater(updater)
         a.optimizer.setNumIterations(Params.numberOfIterations).setRegParam(Params.regularizationValue)
         a
       case ("BFGS","SVM") =>
