@@ -39,6 +39,7 @@ class IPA(private var gradient: Gradient, private var updater: DistUpdater) exte
 
 /*
  * run distributed ipa
+ * solves the problem: expected loss + regularization
  * return: weights, loss in each iteration
  */
 
@@ -60,15 +61,9 @@ object IPA extends Logging {
     var weights = Vectors.dense(initialWeights.toArray)
 
     val numberOfFeatures = weights.size
-    val noPartitions = data.partitions.length
     val zeroVector = Vectors.zeros(numberOfFeatures)
-
-    // number of records per partition
-    val noRecordsPerPartition = Array.fill[Int](noPartitions)(0)
-    data.mapPartitionsWithIndex{ case(idx,iter) =>
-      List((idx,iter.length)).iterator
-    }.map{ t => (t._1,t._2) }.collect().foreach{ case(idx,value) => noRecordsPerPartition(idx) = value }
-    val bCastNoRecords = data.context.broadcast(noRecordsPerPartition)
+    val noRecords = data.count().toDouble
+    val noPartitions = data.partitions.length
 
     var actualIterations = 0
 
@@ -82,14 +77,13 @@ object IPA extends Logging {
         val originalWeight = bcWeights.value
         var iterCount = 1
         var loss = 0.0
-        val newRegParam = regParam/(noPartitions*bCastNoRecords.value(idx))
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
           val (newGradient,_) = gradient.compute(features, label, w)
           val (_,newLoss) = gradient.compute(features,label,originalWeight)
           // update current point
-          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, newRegParam)
+          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
           loss += newLoss
           w = w1
           iterCount += 1
@@ -125,7 +119,7 @@ object IPA extends Logging {
       weights = sumWeight
 
       actualIterations += 1
-      stochasticLossHistory.append(totalLoss+regVal)
+      stochasticLossHistory.append(totalLoss/noRecords+regVal)
 
       bcWeights.destroy()
 

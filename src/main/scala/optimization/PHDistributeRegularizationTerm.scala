@@ -15,10 +15,9 @@ import optimization.{Updater=>DistUpdater}
 /**
  * Created by diego on 1/28/15.
  *
- * Solves by using PH: sum_{partition i} [sum_{records r in i) loss(r,w)+ regParam/n * reg(w)]
- * Here n is the number of partitions.
+ * Solves by using PH: sum_{partition i} [sum_{records r in i) {loss(r,w)+ regParam * reg(w)}]
  *
- * Each partition solves: sum_{records r in i) [loss(r,w)+ regParam/(n_i*n) * reg(w) + penalty*w/n_i + rho/2 * (w-average)^2/n_i]
+ * Each partition solves: sum_{records r in i) [loss(r,w)+ regParam * reg(w) + penalty*w/n_i + rho/2 * (w-average)^2/n_i]
  * n_i = the number of records in partition i
  * This problem is solved by single pass updating the gradient
  */
@@ -87,11 +86,13 @@ object PHDistributeRegularizationTerm extends Logging {
     var actualIterations = 1
 
     // number of records per partition
-    val noRecordsPerPartition = Array.fill[Int](noPartitions)(0)
+    val noRecordsPerPartition = Array.fill[Double](noPartitions)(0.0)
     data.mapPartitionsWithIndex{ case(idx,iter) =>
-      List((idx,iter.length)).iterator
+      List((idx,iter.length.toDouble)).iterator
     }.map{ t => (t._1,t._2) }.collect().foreach{ case(idx,value) => noRecordsPerPartition(idx) = value }
     val bCastNoRecords = data.context.broadcast(noRecordsPerPartition)
+
+    val noRecords = noRecordsPerPartition.reduce(_+_)
 
     /*
      * the first iteration: corresponds to regular single iteration of IPA
@@ -105,14 +106,13 @@ object PHDistributeRegularizationTerm extends Logging {
       val originalWeight = bcInitialWeights.value
       var iterCount = 1
       var loss = 0.0
-      val adjustedRegParam = regParam/(bCastNoRecords.value(idx) * noPartitions)
       while(iter.hasNext) {
         val (label,features) = iter.next()
         // gradient
         val (newGradient,_) = gradient.compute(features, label, w)
         val (_,newLoss) = gradient.compute(features,label,originalWeight)
         // update current point
-        val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, adjustedRegParam)
+        val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
         loss += newLoss
         w = w1
         iterCount += 1
@@ -167,7 +167,7 @@ object PHDistributeRegularizationTerm extends Logging {
 
       weights = sumWeight
 
-      stochasticLossHistory.append(totalLoss+regVal)
+      stochasticLossHistory.append(totalLoss/noRecords+regVal)
 
       val stop = if(normDiff < stoppingEpsilon) true else false
       if(stop) {
@@ -220,12 +220,11 @@ object PHDistributeRegularizationTerm extends Logging {
         val averageWeight = bcWeights.value
         val noRecords = bCastNoRecords.value(idx)
         val factor = rho/noRecords
-        val factorReg = regParam/(noPartitions*noRecords)
         val penalties = bcNewPenalties.value
         var iterCount = 1
         var loss = 0.0
-        // gradient of loss(r,w)+ regParam/(n_i*n) * reg(w) + penalty*w/n_i + rho/2 * (w-average)^2/n_i
-        // gradient = loss gradient + penalties/noRecords + rho/noRecords * (w - averageWeight) + gradient of reg(w) * factorReg
+        // gradient of loss(r,w)+ regParam * reg(w) + penalty*w/n_i + rho/2 * (w-average)^2/n_i
+        // gradient = loss gradient + penalties/noRecords + rho/noRecords * (w - averageWeight) + gradient of reg(w) * regParam
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
@@ -240,8 +239,8 @@ object PHDistributeRegularizationTerm extends Logging {
           // adjust for the averaging factor
           BLAS.getInstance().daxpy(numberOfFeatures,factor,w.asInstanceOf[DenseVector].values,1,newGradient.asInstanceOf[DenseVector].values,1)
           BLAS.getInstance().daxpy(numberOfFeatures,-factor,averageWeight.asInstanceOf[DenseVector].values,1,newGradient.asInstanceOf[DenseVector].values,1)
-          // update current point; note that regularization parameter in this case is factorReg (the gradient for regularization is taken in compute)
-          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, factorReg)
+          // update current point
+          val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
           loss += newLoss
           w = w1
           iterCount += 1

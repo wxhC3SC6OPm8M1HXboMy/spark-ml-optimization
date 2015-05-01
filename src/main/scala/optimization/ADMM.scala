@@ -17,10 +17,11 @@ import optimization.{Updater=>DistUpdater}
  *
  * Classical ADMM algorithm
  *
- * Solves by using ADMM: sum_{partition i} sum_{records r in i) loss(r,w)+ regParam * reg(w)
+ * Solves by using ADMM: sum_{partition i} sum_{records r in i) [loss(r,w)+ regParam * reg(w)]
  *
- * Each partition solves: sum_{records r in i) [loss(r,w)+ rho/2 * pow(w-regPenalty+penalty_i),2)/n_i]
+ * Each partition solves: sum_{records r in i) [loss(r,w)/n+ rho/2 * pow(w-regPenalty+penalty_i),2)/n_i]
  * n_i = the number of records in partition i
+ * n = number of records
  * This problem is solved by single pass updating the gradient
  */
 
@@ -90,11 +91,13 @@ object ADMM extends Logging {
     var actualIterations = 1
 
     // number of records per partition
-    val noRecordsPerPartition = Array.fill[Int](noPartitions)(0)
+    val noRecordsPerPartition = Array.fill[Double](noPartitions)(0.0)
     data.mapPartitionsWithIndex{ case(idx,iter) =>
-      List((idx,iter.length)).iterator
+      List((idx,iter.length.toDouble)).iterator
     }.map{ t => (t._1,t._2) }.collect().foreach{ case(idx,value) => noRecordsPerPartition(idx) = value }
     val bCastNoRecords = data.context.broadcast(noRecordsPerPartition)
+
+    val noRecords = noRecordsPerPartition.reduce(_+_)
 
     // array of penalties; one penalty vector per partition; we store them as single vector
     var penalties = Vectors.zeros(noPartitions*numberOfFeatures)
@@ -116,13 +119,13 @@ object ADMM extends Logging {
       val oneIterRdd = data.mapPartitionsWithIndex{ case (idx,iter) =>
         var w = bcWeights.value.copy
         val averageWeight = bcWeights.value
-        val noRecords = bCastNoRecords.value(idx)
-        val factor = rho/noRecords
+        val noRecordsLocal = bCastNoRecords.value(idx)
+        val factor = rho/noRecordsLocal
         val penalties = bcPenalties.value
         val regPenalties = bcRegPenalties.value
         var iterCount = 1
         var loss = 0.0
-        // gradient = loss gradient + rho/noRecords * (w + penalties(idx) - regPenalties)
+        // gradient = loss gradient/n + rho/noRecords * (w + penalties(idx) - regPenalties)
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
@@ -132,6 +135,8 @@ object ADMM extends Logging {
             case g: SparseVector => Vectors.dense(g.toArray)
           }
           val (_,newLoss) = gradient.compute(features,label,averageWeight)
+          // scale the gradient by n
+          BLAS.getInstance().daxpy(numberOfFeatures,1.0/noRecords,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
           // adjust with penalties
           BLAS.getInstance().daxpy(numberOfFeatures,factor,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
           // adjust for w
@@ -217,7 +222,7 @@ object ADMM extends Logging {
 
       weights = sumWeight
 
-      stochasticLossHistory.append(totalLoss+regVal)
+      stochasticLossHistory.append(totalLoss/noRecords+regVal)
 
       actualIterations += 1
 

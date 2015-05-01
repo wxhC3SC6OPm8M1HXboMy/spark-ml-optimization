@@ -18,8 +18,9 @@ import optimization.{Updater=>DistUpdater}
  * Solves by using PH: sum_{partition i} sum_{records r in i) loss(r,w)+ regParam * reg(w)
  * The regularization term is considered as an 'extra scenario.' (In addition to each partition)
  *
- * Each partition solves: sum_{records r in i) [loss(r,w)+ penalty*w/n_i + rho/2 * (w-average)^2/n_i]
+ * Each partition solves: 1/n loss + penalty + average term = sum_{records r in i) [loss(r,w)/n + penalty*w/n_i + rho/2 * (w-average)^2/n_i]
  * n_i = the number of records in partition i
+ * n = number of all records
  * This problem is solved by single pass updating the gradient
  */
 
@@ -89,11 +90,13 @@ object PH extends Logging {
     var actualIterations = 1
 
     // number of records per partition
-    val noRecordsPerPartition = Array.fill[Int](noPartitions)(0)
+    val noRecordsPerPartition = Array.fill[Double](noPartitions)(0.0)
     data.mapPartitionsWithIndex{ case(idx,iter) =>
-      List((idx,iter.length)).iterator
+      List((idx,iter.length.toDouble)).iterator
     }.map{ t => (t._1,t._2) }.collect().foreach{ case(idx,value) => noRecordsPerPartition(idx) = value }
     val bCastNoRecords = data.context.broadcast(noRecordsPerPartition)
+
+    val noRecords = noRecordsPerPartition.reduce(_+_)
 
     /*
      * the first iteration: corresponds to regular single iteration of IPA
@@ -107,14 +110,13 @@ object PH extends Logging {
       val originalWeight = bcInitialWeights.value
       var iterCount = 1
       var loss = 0.0
-      val adjustedRegParam = regParam/(bCastNoRecords.value(idx) * noPartitions)
       while(iter.hasNext) {
         val (label,features) = iter.next()
         // gradient
         val (newGradient,_) = gradient.compute(features, label, w)
         val (_,newLoss) = gradient.compute(features,label,originalWeight)
         // update current point
-        val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, adjustedRegParam)
+        val (w1,_) = updater.compute(w, newGradient, stepSize, stepSizeFunction, iterCount, regParam)
         loss += newLoss
         w = w1
         iterCount += 1
@@ -175,7 +177,7 @@ object PH extends Logging {
 
       weights = sumWeight
 
-      stochasticLossHistory.append(totalLoss+regVal)
+      stochasticLossHistory.append(totalLoss/noRecords+regVal)
 
       val stop = if(normDiff < stoppingEpsilon) true else false
       if(stop) {
@@ -230,12 +232,12 @@ object PH extends Logging {
       val oneIterRdd = data.mapPartitionsWithIndex{ case (idx,iter) =>
         var w = bcWeights.value.copy
         val averageWeight = bcWeights.value
-        val noRecords = bCastNoRecords.value(idx)
-        val factor = rho/noRecords
+        val noRecordsLocal = bCastNoRecords.value(idx)
+        val factor = rho/noRecordsLocal
         val penalties = bcNewPenalties.value
         var iterCount = 1
         var loss = 0.0
-        // gradient = loss gradient + penalties/noRecords + rho/noRecords * (w - averageWeight)
+        // gradient = loss gradient / noRecords + penalties/noRecordsLocal + rho/noRecordsLocal * (w - averageWeight)
         while(iter.hasNext) {
           val (label,features) = iter.next()
           // gradient
@@ -245,8 +247,10 @@ object PH extends Logging {
             case g: SparseVector => Vectors.dense(g.toArray)
           }
           val (_,newLoss) = gradient.compute(features,label,averageWeight)
-          // adjust with penalties
+          // scale the gradient by n
           BLAS.getInstance().daxpy(numberOfFeatures,1.0/noRecords,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
+          // adjust with penalties
+          BLAS.getInstance().daxpy(numberOfFeatures,1.0/noRecordsLocal,penalties.asInstanceOf[DenseVector].values,numberOfFeatures*idx,1,newGradient.asInstanceOf[DenseVector].values,0,1)
           // adjust for the averaging factor
           BLAS.getInstance().daxpy(numberOfFeatures,factor,w.asInstanceOf[DenseVector].values,1,newGradient.asInstanceOf[DenseVector].values,1)
           BLAS.getInstance().daxpy(numberOfFeatures,-factor,averageWeight.asInstanceOf[DenseVector].values,1,newGradient.asInstanceOf[DenseVector].values,1)
